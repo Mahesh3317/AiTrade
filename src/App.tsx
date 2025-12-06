@@ -10,6 +10,7 @@ import Analytics from "./pages/Analytics";
 import Psychology from "./pages/Psychology";
 import Capital from "./pages/Capital";
 import Settings from "./pages/Settings";
+import Live from "./pages/Live";
 import ComingSoon from "./pages/ComingSoon";
 import NotFound from "./pages/NotFound";
 
@@ -28,7 +29,7 @@ const App = () => (
             <Route path="/analytics" element={<Analytics />} />
             <Route path="/psychology" element={<Psychology />} />
             <Route path="/capital" element={<Capital />} />
-            <Route path="/live" element={<ComingSoon title="F&O Live" description="Real-time option chain, Greeks, IV, OI build-up, and market scanners coming soon." />} />
+            <Route path="/live" element={<Live />} />
             <Route path="/alerts" element={<ComingSoon title="Alerts" description="Price, IV, OI, and risk rule alerts with real-time notifications coming soon." />} />
             <Route path="/goals" element={<ComingSoon title="Goals & Habits" description="Set weekly goals, track habit streaks, and get coaching reminders." />} />
             <Route path="/settings" element={<Settings />} />
