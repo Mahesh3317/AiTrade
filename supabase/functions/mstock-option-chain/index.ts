@@ -28,7 +28,8 @@ serve(async (req) => {
       );
     }
 
-    const { action, exchange, expiry, token, symbol } = await req.json();
+    const { action, exchange, expiry, token } = await req.json();
+    console.log(`📥 Received request: action=${action}, exchange=${exchange}, expiry=${expiry}, token=${token}`);
     
     const headers = {
       'X-Mirae-Version': '1',
@@ -45,7 +46,7 @@ serve(async (req) => {
         // Get option chain master data (list of all available symbols and expiries)
         // exchange: 1=NSE, 2=NFO
         endpoint = `${MSTOCK_API_BASE}/getoptionchainmaster/${exchange || 2}`;
-        console.log(`Fetching option chain master from: ${endpoint}`);
+        console.log(`🔗 Fetching option chain master from: ${endpoint}`);
         response = await fetch(endpoint, { headers });
         break;
 
@@ -53,52 +54,92 @@ serve(async (req) => {
         // Get option chain for specific symbol
         // exchange: 2=NFO, expiry: epoch timestamp, token: symbol token
         if (!expiry || !token) {
+          console.error('❌ Missing required parameters: expiry and token');
           return new Response(
             JSON.stringify({ error: 'Missing required parameters: expiry and token' }),
             { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
           );
         }
         endpoint = `${MSTOCK_API_BASE}/GetOptionChain/${exchange || 2}/${expiry}/${token}`;
-        console.log(`Fetching option chain from: ${endpoint}`);
+        console.log(`🔗 Fetching option chain from: ${endpoint}`);
         response = await fetch(endpoint, { headers });
         break;
 
       case 'getQuote':
         // Get market quote for a symbol
+        if (!token) {
+          console.error('❌ Missing required parameter: token');
+          return new Response(
+            JSON.stringify({ error: 'Missing required parameter: token' }),
+            { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+          );
+        }
         endpoint = `${MSTOCK_API_BASE}/getquote/${exchange || 1}/${token}`;
-        console.log(`Fetching quote from: ${endpoint}`);
+        console.log(`🔗 Fetching quote from: ${endpoint}`);
         response = await fetch(endpoint, { headers });
         break;
 
       default:
+        console.error(`❌ Invalid action: ${action}`);
         return new Response(
           JSON.stringify({ error: 'Invalid action. Supported: getOptionChainMaster, getOptionChain, getQuote' }),
           { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
     }
 
-    const data = await response.json();
-    console.log(`mStock API response status: ${response.status}`);
+    const responseText = await response.text();
+    console.log(`📤 mStock API response status: ${response.status}`);
+    console.log(`📤 mStock API response (first 500 chars): ${responseText.substring(0, 500)}`);
+    
+    let data;
+    try {
+      data = JSON.parse(responseText);
+    } catch (parseError) {
+      console.error('❌ Failed to parse mStock response:', parseError);
+      return new Response(
+        JSON.stringify({ 
+          error: 'Invalid response from mStock API',
+          rawResponse: responseText.substring(0, 200)
+        }),
+        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
     
     if (!response.ok) {
-      console.error('mStock API error:', data);
+      console.error('❌ mStock API error:', data);
       return new Response(
         JSON.stringify({ 
           error: 'mStock API error', 
           details: data,
-          message: data.message || 'Unknown error from mStock API'
+          message: data.message || data.errorcode || 'Unknown error from mStock API',
+          httpStatus: response.status
         }),
         { status: response.status, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
+    // Check for API-level errors (mStock returns status: false for errors)
+    if (data.status === false && data.errorcode) {
+      console.error('❌ mStock API error response:', data);
+      return new Response(
+        JSON.stringify({ 
+          error: 'mStock API error',
+          message: data.message || data.errorcode,
+          errorcode: data.errorcode,
+          data: null
+        }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    console.log(`✅ Successfully fetched ${action} data`);
     return new Response(
       JSON.stringify(data),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
 
   } catch (error) {
-    console.error('Edge function error:', error);
+    console.error('❌ Edge function error:', error);
     const errorMessage = error instanceof Error ? error.message : 'Internal server error';
     return new Response(
       JSON.stringify({ error: errorMessage }),
