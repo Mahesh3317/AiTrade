@@ -2,3 +2,6 @@ project_id = "ococpzlfazgqaqryqoqr"
 
 [functions.mstock-option-chain]
 verify_jwt = false
+
+[functions.nse-option-chain]
+verify_jwt = false

@@ -8,7 +8,7 @@ import { IVRankCard } from '@/components/live/IVRankCard';
 import { OIAnalysisCard } from '@/components/live/OIAnalysisCard';
 import { OptionChainTable } from '@/components/live/OptionChainTable';
 import { OIChart } from '@/components/live/OIChart';
-import { useMstockData } from '@/hooks/useMstockData';
+import { useNseData } from '@/hooks/useNseData';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { 
   mockMarketData, 
@@ -17,288 +17,155 @@ import {
   mockOptionChain,
 } from '@/data/optionChainData';
 
-interface ParsedSymbol {
-  name: string;
-  token: number;
-  expiryKeys: number[];
-}
-
-interface ParsedExpiry {
-  key: number;
-  timestamp: number;
-  date: Date;
-  label: string;
-  daysToExpiry: number;
-}
+const SYMBOLS = ['NIFTY', 'BANKNIFTY', 'FINNIFTY', 'MIDCPNIFTY'];
 
 export default function Live() {
-  const [selectedSymbol, setSelectedSymbol] = useState<string>('');
+  const [selectedSymbol, setSelectedSymbol] = useState('NIFTY');
   const [selectedExpiry, setSelectedExpiry] = useState<string>('');
   const [isLive, setIsLive] = useState(true);
   const [lastUpdate, setLastUpdate] = useState(new Date());
-  const [apiConnected, setApiConnected] = useState<boolean | null>(null);
-  const [isLoadingChain, setIsLoadingChain] = useState(false);
   
-  const { 
-    loading, 
-    error, 
-    optionChainMaster, 
-    optionChainData,
-    fetchOptionChainMaster, 
-    fetchOptionChain,
-  } = useMstockData();
+  const { loading, error, data, fetchOptionChain } = useNseData();
 
-  // Parse symbols from master data (OPTIDX for index options)
-  const parsedSymbols = useMemo((): ParsedSymbol[] => {
-    if (!optionChainMaster?.OPTIDX) return [];
-    
-    return optionChainMaster.OPTIDX.map((item: string) => {
-      const parts = item.split(',');
-      const name = parts[0];
-      const token = parseInt(parts[1], 10);
-      const expiryKeys = parts.slice(2).map((k: string) => parseInt(k, 10));
-      return { name, token, expiryKeys };
-    });
-  }, [optionChainMaster]);
-
-  // Parse expiry dates from master data
-  const parsedExpiries = useMemo((): ParsedExpiry[] => {
-    if (!optionChainMaster?.dctExp) return [];
-    
-    const now = new Date();
-    const expiries: ParsedExpiry[] = [];
-    
-    for (const [key, timestamp] of Object.entries(optionChainMaster.dctExp)) {
-      const ts = timestamp as number;
-      // mStock returns timestamps in seconds, convert to Date
-      const date = new Date(ts * 1000);
-      const daysToExpiry = Math.ceil((date.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
-      
-      // Only include future expiries
-      if (daysToExpiry > 0) {
-        expiries.push({
-          key: parseInt(key, 10),
-          timestamp: ts,
-          date,
-          label: date.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }),
-          daysToExpiry
-        });
-      }
-    }
-    
-    return expiries.sort((a, b) => a.timestamp - b.timestamp);
-  }, [optionChainMaster]);
-
-  // Get available expiries for selected symbol
-  const availableExpiries = useMemo(() => {
-    const symbol = parsedSymbols.find(s => s.name === selectedSymbol);
-    if (!symbol) return [];
-    
-    return parsedExpiries.filter(exp => symbol.expiryKeys.includes(exp.key));
-  }, [selectedSymbol, parsedSymbols, parsedExpiries]);
-
-  // Fetch option chain data
-  const loadOptionChain = useCallback(async (symbolName: string, expiryKey: string) => {
-    const symbol = parsedSymbols.find(s => s.name === symbolName);
-    const expiry = parsedExpiries.find(e => e.key.toString() === expiryKey);
-    
-    if (!symbol || !expiry) {
-      console.log('Cannot fetch: symbol or expiry not found', { symbolName, expiryKey, symbol, expiry });
-      return;
-    }
-    
-    setIsLoadingChain(true);
-    console.log(`📊 Fetching option chain: ${symbol.name} (token: ${symbol.token}), expiry: ${expiry.label} (ts: ${expiry.timestamp})`);
-    
-    try {
-      await fetchOptionChain(expiry.timestamp, symbol.token, 2);
+  // Fetch data on mount and when symbol/expiry changes
+  const loadData = useCallback(async () => {
+    console.log('📊 Loading NSE data for', selectedSymbol, selectedExpiry || '(default expiry)');
+    const result = await fetchOptionChain(selectedSymbol, selectedExpiry || undefined);
+    if (result) {
       setLastUpdate(new Date());
-    } catch (err) {
-      console.error('Failed to fetch option chain:', err);
-    } finally {
-      setIsLoadingChain(false);
-    }
-  }, [parsedSymbols, parsedExpiries, fetchOptionChain]);
-
-  // Initial load - fetch master data
-  useEffect(() => {
-    const loadMaster = async () => {
-      try {
-        console.log('🔄 Loading option chain master...');
-        await fetchOptionChainMaster(2);
-        setApiConnected(true);
-      } catch (err) {
-        console.error('Failed to load master:', err);
-        setApiConnected(false);
-      }
-    };
-    loadMaster();
-  }, [fetchOptionChainMaster]);
-
-  // Set default symbol when master data loads
-  useEffect(() => {
-    if (parsedSymbols.length > 0 && !selectedSymbol) {
-      const nifty = parsedSymbols.find(s => s.name === 'NIFTY');
-      const defaultSymbol = nifty?.name || parsedSymbols[0].name;
-      console.log('📌 Setting default symbol:', defaultSymbol);
-      setSelectedSymbol(defaultSymbol);
-    }
-  }, [parsedSymbols, selectedSymbol]);
-
-  // Set default expiry when symbol changes or expiries load
-  useEffect(() => {
-    if (availableExpiries.length > 0) {
-      const currentExpiryValid = availableExpiries.find(e => e.key.toString() === selectedExpiry);
-      if (!currentExpiryValid) {
-        const defaultExpiry = availableExpiries[0].key.toString();
-        console.log('📅 Setting default expiry:', availableExpiries[0].label);
-        setSelectedExpiry(defaultExpiry);
+      // Set first expiry as default if not set
+      if (!selectedExpiry && result.expiryDates?.length > 0) {
+        setSelectedExpiry(result.expiryDates[0]);
       }
     }
-  }, [availableExpiries, selectedExpiry]);
+  }, [selectedSymbol, selectedExpiry, fetchOptionChain]);
 
-  // Fetch option chain when both symbol and expiry are selected
+  // Initial load
   useEffect(() => {
-    if (selectedSymbol && selectedExpiry && parsedSymbols.length > 0 && parsedExpiries.length > 0) {
-      loadOptionChain(selectedSymbol, selectedExpiry);
+    loadData();
+  }, [selectedSymbol]); // Only reload on symbol change initially
+
+  // Load when expiry changes (after initial load)
+  useEffect(() => {
+    if (selectedExpiry) {
+      loadData();
     }
-  }, [selectedSymbol, selectedExpiry, loadOptionChain, parsedSymbols.length, parsedExpiries.length]);
+  }, [selectedExpiry]);
 
-  // Update connection status
+  // Auto-refresh every 10 seconds when live
   useEffect(() => {
-    if (optionChainMaster) {
-      setApiConnected(true);
-    } else if (error) {
-      setApiConnected(false);
-    }
-  }, [optionChainMaster, error]);
-
-  // Auto-refresh when live
-  useEffect(() => {
-    if (!isLive || !selectedSymbol || !selectedExpiry) return;
+    if (!isLive) return;
     
     const interval = setInterval(() => {
-      console.log('⏰ Auto-refresh triggered');
-      loadOptionChain(selectedSymbol, selectedExpiry);
+      console.log('⏰ Auto-refresh');
+      loadData();
     }, 10000);
     
     return () => clearInterval(interval);
-  }, [isLive, selectedSymbol, selectedExpiry, loadOptionChain]);
+  }, [isLive, loadData]);
 
-  // Transform mStock option chain data to component format
+  // Transform NSE data to component format
   const transformedOptionChain = useMemo(() => {
-    if (!optionChainData?.opDta || !Array.isArray(optionChainData.opDta)) {
-      console.log('⚠️ No option chain data available, using mock data');
+    if (!data?.data || data.data.length === 0) {
       return mockOptionChain;
     }
     
-    console.log(`✅ Transforming ${optionChainData.opDta.length} option chain rows`);
+    console.log(`✅ Transforming ${data.data.length} strikes from NSE`);
     
-    try {
-      return optionChainData.opDta.map((item: any) => ({
-        strike: parseFloat(item.stkPrc) || 0,
-        callLTP: parseFloat(item.ceQt?.ltp) || 0,
-        callOI: parseInt(item.ceQt?.opnInt) || 0,
-        callOIChange: parseInt(item.ceQt?.opIntChg) || 0,
-        callVolume: parseInt(item.ceQt?.vol) || 0,
-        callIV: parseFloat(item.ceQt?.iv) || 0,
-        callDelta: parseFloat(item.ceQt?.delta) || 0,
-        callGamma: parseFloat(item.ceQt?.gamma) || 0,
-        callTheta: parseFloat(item.ceQt?.theta) || 0,
-        callVega: parseFloat(item.ceQt?.vega) || 0,
-        putLTP: parseFloat(item.peQt?.ltp) || 0,
-        putOI: parseInt(item.peQt?.opnInt) || 0,
-        putOIChange: parseInt(item.peQt?.opIntChg) || 0,
-        putVolume: parseInt(item.peQt?.vol) || 0,
-        putIV: parseFloat(item.peQt?.iv) || 0,
-        putDelta: parseFloat(item.peQt?.delta) || 0,
-        putGamma: parseFloat(item.peQt?.gamma) || 0,
-        putTheta: parseFloat(item.peQt?.theta) || 0,
-        putVega: parseFloat(item.peQt?.vega) || 0,
-      })).sort((a: any, b: any) => a.strike - b.strike);
-    } catch (err) {
-      console.error('❌ Error transforming option chain:', err);
-      return mockOptionChain;
-    }
-  }, [optionChainData]);
+    return data.data.map(item => ({
+      strike: item.strikePrice,
+      callLTP: item.CE?.lastPrice || 0,
+      callOI: item.CE?.openInterest || 0,
+      callOIChange: item.CE?.changeinOpenInterest || 0,
+      callVolume: item.CE?.totalTradedVolume || 0,
+      callIV: item.CE?.impliedVolatility || 0,
+      callDelta: 0, // NSE doesn't provide Greeks
+      callGamma: 0,
+      callTheta: 0,
+      callVega: 0,
+      putLTP: item.PE?.lastPrice || 0,
+      putOI: item.PE?.openInterest || 0,
+      putOIChange: item.PE?.changeinOpenInterest || 0,
+      putVolume: item.PE?.totalTradedVolume || 0,
+      putIV: item.PE?.impliedVolatility || 0,
+      putDelta: 0,
+      putGamma: 0,
+      putTheta: 0,
+      putVega: 0,
+    })).sort((a, b) => a.strike - b.strike);
+  }, [data]);
 
-  // Get spot price from option chain data
+  // Spot price
   const spotPrice = useMemo(() => {
-    if (optionChainData?.sptPrc) {
-      const price = parseFloat(optionChainData.sptPrc);
-      console.log('💰 Spot price from API:', price);
-      return price;
-    }
-    return mockMarketData.spotPrice;
-  }, [optionChainData]);
+    return data?.spotPrice || data?.indexQuote?.last || mockMarketData.spotPrice;
+  }, [data]);
 
-  // Calculate market data from option chain
+  // Market data
   const marketData = useMemo(() => {
-    if (!optionChainData) return mockMarketData;
+    if (!data) return mockMarketData;
     
+    const quote = data.indexQuote;
     return {
-      symbol: selectedSymbol || mockMarketData.symbol,
+      symbol: data.symbol || selectedSymbol,
       spotPrice: spotPrice,
-      change: parseFloat(optionChainData.chng) || mockMarketData.change,
-      changePercent: parseFloat(optionChainData.chngPer) || mockMarketData.changePercent,
-      high: parseFloat(optionChainData.high) || mockMarketData.high,
-      low: parseFloat(optionChainData.low) || mockMarketData.low,
-      open: parseFloat(optionChainData.open) || mockMarketData.open,
-      prevClose: parseFloat(optionChainData.prvCls) || mockMarketData.prevClose,
+      change: quote?.change || 0,
+      changePercent: quote?.percentChange || 0,
+      high: quote?.high || spotPrice,
+      low: quote?.low || spotPrice,
+      open: quote?.open || spotPrice,
+      prevClose: quote?.previousClose || spotPrice,
     };
-  }, [optionChainData, spotPrice, selectedSymbol]);
+  }, [data, spotPrice, selectedSymbol]);
 
-  // Calculate IV and OI analysis from real data
+  // IV data from option chain
   const ivData = useMemo(() => {
-    if (!optionChainData?.opDta || !Array.isArray(optionChainData.opDta)) return mockIVData;
+    if (!data?.data || data.data.length === 0) return mockIVData;
     
-    const allIVs = optionChainData.opDta.flatMap((item: any) => [
-      parseFloat(item.ceQt?.iv) || 0,
-      parseFloat(item.peQt?.iv) || 0
-    ]).filter((iv: number) => iv > 0);
+    const allIVs = data.data.flatMap(item => [
+      item.CE?.impliedVolatility || 0,
+      item.PE?.impliedVolatility || 0
+    ]).filter(iv => iv > 0);
     
     if (allIVs.length === 0) return mockIVData;
     
-    const currentIV = allIVs.reduce((a: number, b: number) => a + b, 0) / allIVs.length;
+    const currentIV = allIVs.reduce((a, b) => a + b, 0) / allIVs.length;
     const maxIV = Math.max(...allIVs);
     const minIV = Math.min(...allIVs);
-    const ivRank = ((currentIV - minIV) / (maxIV - minIV)) * 100 || 0;
+    const ivRank = maxIV !== minIV ? ((currentIV - minIV) / (maxIV - minIV)) * 100 : 50;
     
     return {
-      current: currentIV,
-      rank: Math.min(100, Math.max(0, ivRank)),
-      percentile: Math.min(100, Math.max(0, ivRank * 0.9)),
-      high52w: maxIV,
-      low52w: minIV,
-      mean: (maxIV + minIV) / 2
+      current: Math.round(currentIV * 100) / 100,
+      rank: Math.min(100, Math.max(0, Math.round(ivRank))),
+      percentile: Math.min(100, Math.max(0, Math.round(ivRank * 0.9))),
+      high52w: Math.round(maxIV * 100) / 100,
+      low52w: Math.round(minIV * 100) / 100,
+      mean: Math.round(((maxIV + minIV) / 2) * 100) / 100
     };
-  }, [optionChainData]);
+  }, [data]);
 
-  // Calculate OI analysis from real data
+  // OI analysis
   const oiAnalysis = useMemo(() => {
-    if (!optionChainData?.opDta || !Array.isArray(optionChainData.opDta)) return mockOIAnalysis;
+    if (!data?.data || data.data.length === 0) return mockOIAnalysis;
     
     let totalCallOI = 0;
     let totalPutOI = 0;
     let callOIChange = 0;
     let putOIChange = 0;
-    let maxPainStrikeVal = spotPrice;
+    let maxPainStrike = spotPrice;
     let maxOI = 0;
     
-    optionChainData.opDta.forEach((item: any) => {
-      const callOI = parseInt(item.ceQt?.opnInt) || 0;
-      const putOI = parseInt(item.peQt?.opnInt) || 0;
-      const strike = parseFloat(item.stkPrc) || 0;
+    data.data.forEach(item => {
+      const callOI = item.CE?.openInterest || 0;
+      const putOI = item.PE?.openInterest || 0;
       
       totalCallOI += callOI;
       totalPutOI += putOI;
-      callOIChange += parseInt(item.ceQt?.opIntChg) || 0;
-      putOIChange += parseInt(item.peQt?.opIntChg) || 0;
+      callOIChange += item.CE?.changeinOpenInterest || 0;
+      putOIChange += item.PE?.changeinOpenInterest || 0;
       
-      // Max pain is strike with highest total OI
       if (callOI + putOI > maxOI) {
         maxOI = callOI + putOI;
-        maxPainStrikeVal = strike;
+        maxPainStrike = item.strikePrice;
       }
     });
     
@@ -306,7 +173,7 @@ export default function Live() {
     const pcrTrend: 'bullish' | 'bearish' | 'neutral' = pcr > 1.2 ? 'bullish' : pcr < 0.8 ? 'bearish' : 'neutral';
     
     return {
-      maxPainStrike: maxPainStrikeVal,
+      maxPainStrike,
       pcr: Math.round(pcr * 100) / 100,
       pcrTrend,
       totalCallOI,
@@ -314,19 +181,19 @@ export default function Live() {
       callOIChange,
       putOIChange
     };
-  }, [optionChainData, spotPrice]);
+  }, [data, spotPrice]);
 
-  const selectedExpiryData = availableExpiries.find(e => e.key.toString() === selectedExpiry);
-  const isUsingRealData = apiConnected && optionChainData?.opDta && Array.isArray(optionChainData.opDta);
+  const isConnected = !!data && !error;
+  const isUsingRealData = isConnected && data.data && data.data.length > 0;
 
   return (
     <div className="space-y-6 animate-fade-in">
-      {/* API Connection Status */}
+      {/* Error Alert */}
       {error && (
         <Alert variant="destructive" className="border-loss/50 bg-loss/10">
           <AlertCircle className="h-4 w-4" />
           <AlertDescription className="flex items-center gap-2">
-            <span>mStock API: {error}</span>
+            <span>NSE API: {error}</span>
             <span className="text-xs text-muted-foreground">(Using mock data)</span>
           </AlertDescription>
         </Alert>
@@ -338,57 +205,55 @@ export default function Live() {
           <h1 className="text-2xl font-bold text-foreground">F&O Live</h1>
           <p className="text-muted-foreground text-sm">
             Real-time Option Chain & Analytics
-            {isUsingRealData && <Badge variant="outline" className="ml-2 text-profit border-profit">Live Data</Badge>}
-            {!isUsingRealData && apiConnected && <Badge variant="outline" className="ml-2 text-yellow-500 border-yellow-500">Mock Data</Badge>}
+            {isUsingRealData && <Badge variant="outline" className="ml-2 text-profit border-profit">NSE Live</Badge>}
+            {!isUsingRealData && <Badge variant="outline" className="ml-2 text-yellow-500 border-yellow-500">Mock Data</Badge>}
           </p>
         </div>
         
         <div className="flex items-center gap-3 flex-wrap">
-          {/* API Status Indicator */}
+          {/* Connection Status */}
           <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-card border border-border">
-            {loading || isLoadingChain ? (
+            {loading ? (
               <RefreshCw className="h-3.5 w-3.5 text-muted-foreground animate-spin" />
-            ) : apiConnected === true ? (
+            ) : isConnected ? (
               <Wifi className="h-3.5 w-3.5 text-profit" />
-            ) : apiConnected === false ? (
-              <WifiOff className="h-3.5 w-3.5 text-loss" />
             ) : (
-              <Radio className="h-3.5 w-3.5 text-muted-foreground" />
+              <WifiOff className="h-3.5 w-3.5 text-loss" />
             )}
             <span className="text-xs font-medium">
-              {loading || isLoadingChain ? 'Loading...' : apiConnected ? 'mStock Connected' : 'Disconnected'}
+              {loading ? 'Loading...' : isConnected ? 'NSE Connected' : 'Disconnected'}
             </span>
           </div>
           
           <div className="flex items-center gap-2">
             <Radio className={`h-4 w-4 ${isLive ? 'text-profit animate-pulse' : 'text-muted-foreground'}`} />
             <span className="text-xs text-muted-foreground">
-              {isLive ? 'Live' : 'Paused'} • Updated {lastUpdate.toLocaleTimeString()}
+              {isLive ? 'Live' : 'Paused'} • {lastUpdate.toLocaleTimeString()}
             </span>
           </div>
           
-          <Select value={selectedSymbol} onValueChange={setSelectedSymbol}>
+          <Select value={selectedSymbol} onValueChange={(val) => {
+            setSelectedSymbol(val);
+            setSelectedExpiry(''); // Reset expiry on symbol change
+          }}>
             <SelectTrigger className="w-[140px] h-9">
-              <SelectValue placeholder="Select Symbol" />
+              <SelectValue placeholder="Symbol" />
             </SelectTrigger>
             <SelectContent>
-              {parsedSymbols.map(s => (
-                <SelectItem key={s.name} value={s.name}>{s.name}</SelectItem>
+              {SYMBOLS.map(s => (
+                <SelectItem key={s} value={s}>{s}</SelectItem>
               ))}
             </SelectContent>
           </Select>
           
           <Select value={selectedExpiry} onValueChange={setSelectedExpiry}>
-            <SelectTrigger className="w-[180px] h-9">
+            <SelectTrigger className="w-[160px] h-9">
               <Calendar className="h-4 w-4 mr-2" />
-              <SelectValue placeholder="Select Expiry" />
+              <SelectValue placeholder="Expiry" />
             </SelectTrigger>
             <SelectContent>
-              {availableExpiries.map(e => (
-                <SelectItem key={e.key} value={e.key.toString()}>
-                  {e.label}
-                  <Badge variant="outline" className="ml-2 text-[10px]">{e.daysToExpiry}D</Badge>
-                </SelectItem>
+              {(data?.expiryDates || []).map(exp => (
+                <SelectItem key={exp} value={exp}>{exp}</SelectItem>
               ))}
             </SelectContent>
           </Select>
@@ -401,6 +266,10 @@ export default function Live() {
           >
             <RefreshCw className={`h-4 w-4 mr-2 ${isLive ? 'animate-spin' : ''}`} />
             {isLive ? 'Pause' : 'Resume'}
+          </Button>
+          
+          <Button variant="ghost" size="sm" onClick={loadData} disabled={loading}>
+            <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
           </Button>
         </div>
       </div>
@@ -422,14 +291,10 @@ export default function Live() {
         </div>
       </div>
 
-      {/* Debug Info (remove in production) */}
-      {process.env.NODE_ENV === 'development' && (
-        <div className="stat-card text-xs">
-          <div className="font-mono text-muted-foreground">
-            <p>Symbol: {selectedSymbol} | Expiry: {selectedExpiryData?.label || 'None'}</p>
-            <p>API Connected: {String(apiConnected)} | Has Chain Data: {String(!!optionChainData?.opDta)}</p>
-            <p>Chain Rows: {optionChainData?.opDta?.length || 0} | Spot: {spotPrice}</p>
-          </div>
+      {/* Data Source Info */}
+      {data?.timestamp && (
+        <div className="text-center text-xs text-muted-foreground">
+          Data from NSE India • Last updated: {data.timestamp}
         </div>
       )}
 
@@ -438,38 +303,33 @@ export default function Live() {
         <h3 className="font-semibold text-foreground mb-3">Greeks Reference</h3>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <div>
-            <div className="flex items-center gap-2 mb-1">
-              <span className="text-lg font-mono font-bold text-profit">Δ Delta</span>
-            </div>
+            <span className="text-lg font-mono font-bold text-profit">Δ Delta</span>
             <p className="text-xs text-muted-foreground">
-              Rate of change in option price per ₹1 change in underlying. Range: 0 to 1 (calls), -1 to 0 (puts).
+              Rate of change in option price per ₹1 change in underlying.
             </p>
           </div>
           <div>
-            <div className="flex items-center gap-2 mb-1">
-              <span className="text-lg font-mono font-bold text-chart-2">Γ Gamma</span>
-            </div>
+            <span className="text-lg font-mono font-bold text-chart-2">Γ Gamma</span>
             <p className="text-xs text-muted-foreground">
-              Rate of change in Delta. Highest at ATM strikes. Important for hedging adjustments.
+              Rate of change in Delta. Highest at ATM strikes.
             </p>
           </div>
           <div>
-            <div className="flex items-center gap-2 mb-1">
-              <span className="text-lg font-mono font-bold text-loss">Θ Theta</span>
-            </div>
+            <span className="text-lg font-mono font-bold text-loss">Θ Theta</span>
             <p className="text-xs text-muted-foreground">
-              Time decay per day. Always negative for long options. Accelerates near expiry.
+              Time decay - how much value option loses per day.
             </p>
           </div>
           <div>
-            <div className="flex items-center gap-2 mb-1">
-              <span className="text-lg font-mono font-bold text-chart-4">V Vega</span>
-            </div>
+            <span className="text-lg font-mono font-bold text-chart-4">ν Vega</span>
             <p className="text-xs text-muted-foreground">
-              Sensitivity to 1% change in IV. Higher for ATM options and longer-dated expiries.
+              Sensitivity to implied volatility changes.
             </p>
           </div>
         </div>
+        <p className="text-xs text-muted-foreground mt-3 italic">
+          Note: Greeks are not provided by NSE. Use a broker API for Greek values.
+        </p>
       </div>
     </div>
   );

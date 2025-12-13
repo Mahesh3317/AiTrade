@@ -1,0 +1,109 @@
+import { useState, useCallback } from 'react';
+import { supabase } from '@/integrations/supabase/client';
+
+export interface NseOptionChainData {
+  success: boolean;
+  symbol: string;
+  spotPrice: number;
+  timestamp: string;
+  expiryDates: string[];
+  selectedExpiry: string | null;
+  data: NseOptionRow[];
+  totals: {
+    CE: { totalOI: number; totalVolume: number };
+    PE: { totalOI: number; totalVolume: number };
+  };
+  indexQuote: {
+    open: number;
+    high: number;
+    low: number;
+    last: number;
+    previousClose: number;
+    change: number;
+    percentChange: number;
+  } | null;
+  error?: string;
+  message?: string;
+}
+
+export interface NseOptionRow {
+  strikePrice: number;
+  expiryDate: string;
+  CE: {
+    openInterest: number;
+    changeinOpenInterest: number;
+    totalTradedVolume: number;
+    impliedVolatility: number;
+    lastPrice: number;
+    change: number;
+    bidQty: number;
+    bidprice: number;
+    askQty: number;
+    askPrice: number;
+    underlyingValue: number;
+  } | null;
+  PE: {
+    openInterest: number;
+    changeinOpenInterest: number;
+    totalTradedVolume: number;
+    impliedVolatility: number;
+    lastPrice: number;
+    change: number;
+    bidQty: number;
+    bidprice: number;
+    askQty: number;
+    askPrice: number;
+    underlyingValue: number;
+  } | null;
+}
+
+const SYMBOLS = ['NIFTY', 'BANKNIFTY', 'FINNIFTY', 'MIDCPNIFTY'];
+
+export function useNseData() {
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [data, setData] = useState<NseOptionChainData | null>(null);
+
+  const fetchOptionChain = useCallback(async (symbol: string = 'NIFTY', expiry?: string) => {
+    setLoading(true);
+    setError(null);
+
+    try {
+      console.log('[NSE Hook] Fetching option chain for', symbol, expiry ? `expiry: ${expiry}` : '');
+
+      const { data: responseData, error: fnError } = await supabase.functions.invoke('nse-option-chain', {
+        body: { symbol, expiry }
+      });
+
+      if (fnError) {
+        console.error('[NSE Hook] Function error:', fnError);
+        throw new Error(fnError.message || 'Failed to invoke NSE function');
+      }
+
+      if (!responseData.success) {
+        console.error('[NSE Hook] API error:', responseData);
+        throw new Error(responseData.message || responseData.error || 'NSE API failed');
+      }
+
+      console.log('[NSE Hook] Success! Got', responseData.data?.length || 0, 'strikes');
+      setData(responseData);
+      return responseData;
+
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Unknown error fetching NSE data';
+      console.error('[NSE Hook] Error:', message);
+      setError(message);
+      return null;
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  return {
+    loading,
+    error,
+    data,
+    symbols: SYMBOLS,
+    fetchOptionChain,
+  };
+}
