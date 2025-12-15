@@ -10,12 +10,6 @@ import { OptionChainTable } from '@/components/live/OptionChainTable';
 import { OIChart } from '@/components/live/OIChart';
 import { useNseData } from '@/hooks/useNseData';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { 
-  mockMarketData, 
-  mockIVData, 
-  mockOIAnalysis, 
-  mockOptionChain,
-} from '@/data/optionChainData';
 
 const SYMBOLS = ['NIFTY', 'BANKNIFTY', 'FINNIFTY', 'MIDCPNIFTY'];
 
@@ -66,48 +60,59 @@ export default function Live() {
 
   // Transform NSE data to component format
   const transformedOptionChain = useMemo(() => {
-    if (!data?.data || data.data.length === 0) {
-      return mockOptionChain;
-    }
-    
+    if (!data?.data || data.data.length === 0) return [];
+
     console.log(`✅ Transforming ${data.data.length} strikes from NSE`);
-    
-    return data.data.map(item => ({
-      strike: item.strikePrice,
-      callLTP: item.CE?.lastPrice || 0,
-      callOI: item.CE?.openInterest || 0,
-      callOIChange: item.CE?.changeinOpenInterest || 0,
-      callVolume: item.CE?.totalTradedVolume || 0,
-      callIV: item.CE?.impliedVolatility || 0,
-      callDelta: 0, // NSE doesn't provide Greeks
-      callGamma: 0,
-      callTheta: 0,
-      callVega: 0,
-      putLTP: item.PE?.lastPrice || 0,
-      putOI: item.PE?.openInterest || 0,
-      putOIChange: item.PE?.changeinOpenInterest || 0,
-      putVolume: item.PE?.totalTradedVolume || 0,
-      putIV: item.PE?.impliedVolatility || 0,
-      putDelta: 0,
-      putGamma: 0,
-      putTheta: 0,
-      putVega: 0,
-    })).sort((a, b) => a.strike - b.strike);
+
+    return data.data
+      .map((item) => ({
+        strike: item.strikePrice,
+        callLTP: item.CE?.lastPrice || 0,
+        callOI: item.CE?.openInterest || 0,
+        callOIChange: item.CE?.changeinOpenInterest || 0,
+        callVolume: item.CE?.totalTradedVolume || 0,
+        callIV: item.CE?.impliedVolatility || 0,
+        callDelta: 0, // NSE doesn't provide Greeks
+        callGamma: 0,
+        callTheta: 0,
+        callVega: 0,
+        putLTP: item.PE?.lastPrice || 0,
+        putOI: item.PE?.openInterest || 0,
+        putOIChange: item.PE?.changeinOpenInterest || 0,
+        putVolume: item.PE?.totalTradedVolume || 0,
+        putIV: item.PE?.impliedVolatility || 0,
+        putDelta: 0,
+        putGamma: 0,
+        putTheta: 0,
+        putVega: 0,
+      }))
+      .sort((a, b) => a.strike - b.strike);
   }, [data]);
 
   // Spot price
   const spotPrice = useMemo(() => {
-    return data?.spotPrice || data?.indexQuote?.last || mockMarketData.spotPrice;
+    return data?.spotPrice || data?.indexQuote?.last || 0;
   }, [data]);
 
   // Market data
   const marketData = useMemo(() => {
-    if (!data) return mockMarketData;
-    
+    if (!data) {
+      return {
+        symbol: selectedSymbol,
+        spotPrice,
+        change: 0,
+        changePercent: 0,
+        high: spotPrice,
+        low: spotPrice,
+        open: spotPrice,
+        prevClose: spotPrice,
+      };
+    }
+
     const quote = data.indexQuote;
     return {
       symbol: data.symbol || selectedSymbol,
-      spotPrice: spotPrice,
+      spotPrice,
       change: quote?.change || 0,
       changePercent: quote?.percentChange || 0,
       high: quote?.high || spotPrice,
@@ -119,59 +124,72 @@ export default function Live() {
 
   // IV data from option chain
   const ivData = useMemo(() => {
-    if (!data?.data || data.data.length === 0) return mockIVData;
-    
-    const allIVs = data.data.flatMap(item => [
-      item.CE?.impliedVolatility || 0,
-      item.PE?.impliedVolatility || 0
-    ]).filter(iv => iv > 0);
-    
-    if (allIVs.length === 0) return mockIVData;
-    
+    if (!data?.data || data.data.length === 0) {
+      return { current: 0, rank: 0, percentile: 0, high52w: 0, low52w: 0, mean: 0 };
+    }
+
+    const allIVs = data.data
+      .flatMap((item) => [item.CE?.impliedVolatility || 0, item.PE?.impliedVolatility || 0])
+      .filter((iv) => iv > 0);
+
+    if (allIVs.length === 0) {
+      return { current: 0, rank: 0, percentile: 0, high52w: 0, low52w: 0, mean: 0 };
+    }
+
     const currentIV = allIVs.reduce((a, b) => a + b, 0) / allIVs.length;
     const maxIV = Math.max(...allIVs);
     const minIV = Math.min(...allIVs);
-    const ivRank = maxIV !== minIV ? ((currentIV - minIV) / (maxIV - minIV)) * 100 : 50;
-    
+    const ivRank = maxIV !== minIV ? ((currentIV - minIV) / (maxIV - minIV)) * 100 : 0;
+
     return {
       current: Math.round(currentIV * 100) / 100,
       rank: Math.min(100, Math.max(0, Math.round(ivRank))),
       percentile: Math.min(100, Math.max(0, Math.round(ivRank * 0.9))),
       high52w: Math.round(maxIV * 100) / 100,
       low52w: Math.round(minIV * 100) / 100,
-      mean: Math.round(((maxIV + minIV) / 2) * 100) / 100
+      mean: Math.round(((maxIV + minIV) / 2) * 100) / 100,
     };
   }, [data]);
 
   // OI analysis
   const oiAnalysis = useMemo(() => {
-    if (!data?.data || data.data.length === 0) return mockOIAnalysis;
-    
+    if (!data?.data || data.data.length === 0) {
+      return {
+        maxPainStrike: spotPrice,
+        pcr: 0,
+        pcrTrend: 'neutral' as const,
+        totalCallOI: 0,
+        totalPutOI: 0,
+        callOIChange: 0,
+        putOIChange: 0,
+      };
+    }
+
     let totalCallOI = 0;
     let totalPutOI = 0;
     let callOIChange = 0;
     let putOIChange = 0;
     let maxPainStrike = spotPrice;
     let maxOI = 0;
-    
-    data.data.forEach(item => {
+
+    data.data.forEach((item) => {
       const callOI = item.CE?.openInterest || 0;
       const putOI = item.PE?.openInterest || 0;
-      
+
       totalCallOI += callOI;
       totalPutOI += putOI;
       callOIChange += item.CE?.changeinOpenInterest || 0;
       putOIChange += item.PE?.changeinOpenInterest || 0;
-      
+
       if (callOI + putOI > maxOI) {
         maxOI = callOI + putOI;
         maxPainStrike = item.strikePrice;
       }
     });
-    
+
     const pcr = totalCallOI > 0 ? totalPutOI / totalCallOI : 0;
     const pcrTrend: 'bullish' | 'bearish' | 'neutral' = pcr > 1.2 ? 'bullish' : pcr < 0.8 ? 'bearish' : 'neutral';
-    
+
     return {
       maxPainStrike,
       pcr: Math.round(pcr * 100) / 100,
@@ -179,7 +197,7 @@ export default function Live() {
       totalCallOI,
       totalPutOI,
       callOIChange,
-      putOIChange
+      putOIChange,
     };
   }, [data, spotPrice]);
 
@@ -192,9 +210,8 @@ export default function Live() {
       {error && (
         <Alert variant="destructive" className="border-loss/50 bg-loss/10">
           <AlertCircle className="h-4 w-4" />
-          <AlertDescription className="flex items-center gap-2">
+          <AlertDescription>
             <span>NSE API: {error}</span>
-            <span className="text-xs text-muted-foreground">(Using mock data)</span>
           </AlertDescription>
         </Alert>
       )}
@@ -205,8 +222,12 @@ export default function Live() {
           <h1 className="text-2xl font-bold text-foreground">F&O Live</h1>
           <p className="text-muted-foreground text-sm">
             Real-time Option Chain & Analytics
-            {isUsingRealData && <Badge variant="outline" className="ml-2 text-profit border-profit">NSE Live</Badge>}
-            {!isUsingRealData && <Badge variant="outline" className="ml-2 text-yellow-500 border-yellow-500">Mock Data</Badge>}
+            {isUsingRealData && (
+              <Badge variant="outline" className="ml-2 text-profit border-profit">NSE Live</Badge>
+            )}
+            {!isUsingRealData && (
+              <Badge variant="outline" className="ml-2">No Live Data</Badge>
+            )}
           </p>
         </div>
         
