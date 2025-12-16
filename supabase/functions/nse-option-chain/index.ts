@@ -116,16 +116,30 @@ serve(async (req) => {
     const records = optionChainData.records || {};
     const filtered = optionChainData.filtered || {};
     
+    console.log('[NSE] Raw data structure:', {
+      hasRecords: !!records,
+      hasData: !!records.data,
+      dataLength: records.data?.length || 0,
+      hasExpiryDates: !!records.expiryDates,
+      expiryDatesLength: records.expiryDates?.length || 0,
+      firstExpiry: records.expiryDates?.[0] || 'none',
+      underlyingValue: records.underlyingValue,
+    });
+    
     // Get expiry dates
     const expiryDates = records.expiryDates || [];
     
     // Filter by requested expiry if provided
     let chainData = records.data || [];
+    console.log('[NSE] Chain data before filtering:', chainData.length, 'items');
+    
     if (expiry) {
       chainData = chainData.filter((item: any) => item.expiryDate === expiry);
+      console.log('[NSE] After expiry filter (', expiry, '):', chainData.length, 'items');
     } else if (expiryDates.length > 0) {
       // Default to first expiry
       chainData = chainData.filter((item: any) => item.expiryDate === expiryDates[0]);
+      console.log('[NSE] After default expiry filter (', expiryDates[0], '):', chainData.length, 'items');
     }
     
     // Transform to consistent format
