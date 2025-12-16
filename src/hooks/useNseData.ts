@@ -57,16 +57,50 @@ export interface NseOptionRow {
   } | null;
 }
 
+export interface NseDiagnostics {
+  lastRequestTime: string | null;
+  latencyMs: number | null;
+  status: 'idle' | 'loading' | 'success' | 'error';
+  httpStatus: number | null;
+  payloadSize: number | null;
+  strikesCount: number;
+  expiryDatesCount: number;
+  spotPrice: number | null;
+  errorMessage: string | null;
+  rawResponse: any | null;
+}
+
 const SYMBOLS = ['NIFTY', 'BANKNIFTY', 'FINNIFTY', 'MIDCPNIFTY'];
+
+const initialDiagnostics: NseDiagnostics = {
+  lastRequestTime: null,
+  latencyMs: null,
+  status: 'idle',
+  httpStatus: null,
+  payloadSize: null,
+  strikesCount: 0,
+  expiryDatesCount: 0,
+  spotPrice: null,
+  errorMessage: null,
+  rawResponse: null,
+};
 
 export function useNseData() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<NseOptionChainData | null>(null);
+  const [diagnostics, setDiagnostics] = useState<NseDiagnostics>(initialDiagnostics);
 
   const fetchOptionChain = useCallback(async (symbol: string = 'NIFTY', expiry?: string) => {
     setLoading(true);
     setError(null);
+    
+    const startTime = Date.now();
+    setDiagnostics(prev => ({
+      ...prev,
+      status: 'loading',
+      lastRequestTime: new Date().toISOString(),
+    }));
 
     try {
       console.log('[NSE Hook] Fetching option chain for', symbol, expiry ? `expiry: ${expiry}` : '');
@@ -75,17 +109,55 @@ export function useNseData() {
         body: { symbol, expiry }
       });
 
+      const latencyMs = Date.now() - startTime;
+      const payloadSize = responseData ? JSON.stringify(responseData).length : 0;
+
       if (fnError) {
         console.error('[NSE Hook] Function error:', fnError);
+        setDiagnostics(prev => ({
+          ...prev,
+          status: 'error',
+          latencyMs,
+          payloadSize,
+          httpStatus: 500,
+          errorMessage: fnError.message || 'Function invocation failed',
+          rawResponse: { error: fnError },
+        }));
         throw new Error(fnError.message || 'Failed to invoke NSE function');
       }
 
       if (!responseData.success) {
         console.error('[NSE Hook] API error:', responseData);
+        setDiagnostics(prev => ({
+          ...prev,
+          status: 'error',
+          latencyMs,
+          payloadSize,
+          httpStatus: 200,
+          errorMessage: responseData.message || responseData.error || 'NSE API returned failure',
+          rawResponse: responseData,
+          strikesCount: 0,
+          expiryDatesCount: responseData.expiryDates?.length || 0,
+          spotPrice: responseData.spotPrice || null,
+        }));
         throw new Error(responseData.message || responseData.error || 'NSE API failed');
       }
 
       console.log('[NSE Hook] Success! Got', responseData.data?.length || 0, 'strikes');
+      
+      setDiagnostics(prev => ({
+        ...prev,
+        status: 'success',
+        latencyMs,
+        payloadSize,
+        httpStatus: 200,
+        errorMessage: null,
+        rawResponse: responseData,
+        strikesCount: responseData.data?.length || 0,
+        expiryDatesCount: responseData.expiryDates?.length || 0,
+        spotPrice: responseData.spotPrice || null,
+      }));
+      
       setData(responseData);
       return responseData;
 
@@ -103,6 +175,7 @@ export function useNseData() {
     loading,
     error,
     data,
+    diagnostics,
     symbols: SYMBOLS,
     fetchOptionChain,
   };

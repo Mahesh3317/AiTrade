@@ -8,6 +8,7 @@ import { IVRankCard } from '@/components/live/IVRankCard';
 import { OIAnalysisCard } from '@/components/live/OIAnalysisCard';
 import { OptionChainTable } from '@/components/live/OptionChainTable';
 import { OIChart } from '@/components/live/OIChart';
+import { DiagnosticsPanel } from '@/components/live/DiagnosticsPanel';
 import { useNseData } from '@/hooks/useNseData';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 
@@ -19,7 +20,7 @@ export default function Live() {
   const [isLive, setIsLive] = useState(true);
   const [lastUpdate, setLastUpdate] = useState(new Date());
   
-  const { loading, error, data, fetchOptionChain } = useNseData();
+  const { loading, error, data, diagnostics, fetchOptionChain } = useNseData();
 
   // Fetch data on mount and when symbol/expiry changes
   const loadData = useCallback(async () => {
@@ -206,6 +207,9 @@ export default function Live() {
 
   return (
     <div className="space-y-6 animate-fade-in">
+      {/* Diagnostics Panel */}
+      <DiagnosticsPanel diagnostics={diagnostics} />
+      
       {/* Error Alert */}
       {error && (
         <Alert variant="destructive" className="border-loss/50 bg-loss/10">
