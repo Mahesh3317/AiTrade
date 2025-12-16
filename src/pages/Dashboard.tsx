@@ -5,6 +5,7 @@ import { RecentTrades } from '@/components/dashboard/RecentTrades';
 import { ExpiryCalendar } from '@/components/dashboard/ExpiryCalendar';
 import { AISummary } from '@/components/dashboard/AISummary';
 import { PerformanceChart } from '@/components/dashboard/PerformanceChart';
+import { AIAnalysisCard } from '@/components/dashboard/AIAnalysisCard';
 import { mockPortfolioStats } from '@/data/mockData';
 
 export default function Dashboard() {
@@ -53,9 +54,14 @@ export default function Dashboard() {
 
       {/* Bottom Row */}
       <div className="grid gap-6 lg:grid-cols-3">
+        <AIAnalysisCard />
+        <ExpiryCalendar />
+      </div>
+
+      {/* Additional Row */}
+      <div className="grid gap-6 lg:grid-cols-2">
         <RecentTrades />
         <AISummary />
-        <ExpiryCalendar />
       </div>
     </div>
   );

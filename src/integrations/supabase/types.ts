@@ -14,7 +14,249 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      broker_connections: {
+        Row: {
+          access_token: string | null
+          broker_name: string
+          client_id: string | null
+          connected_at: string | null
+          created_at: string
+          id: string
+          is_connected: boolean | null
+          refresh_token: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          access_token?: string | null
+          broker_name: string
+          client_id?: string | null
+          connected_at?: string | null
+          created_at?: string
+          id?: string
+          is_connected?: boolean | null
+          refresh_token?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          access_token?: string | null
+          broker_name?: string
+          client_id?: string | null
+          connected_at?: string | null
+          created_at?: string
+          id?: string
+          is_connected?: boolean | null
+          refresh_token?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      fund_flows: {
+        Row: {
+          amount: number
+          broker_connection_id: string | null
+          created_at: string
+          description: string | null
+          flow_date: string
+          flow_type: string
+          id: string
+          user_id: string
+        }
+        Insert: {
+          amount: number
+          broker_connection_id?: string | null
+          created_at?: string
+          description?: string | null
+          flow_date: string
+          flow_type: string
+          id?: string
+          user_id: string
+        }
+        Update: {
+          amount?: number
+          broker_connection_id?: string | null
+          created_at?: string
+          description?: string | null
+          flow_date?: string
+          flow_type?: string
+          id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fund_flows_broker_connection_id_fkey"
+            columns: ["broker_connection_id"]
+            isOneToOne: false
+            referencedRelation: "broker_connections"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      trade_analysis: {
+        Row: {
+          ai_analysis: string | null
+          ai_suggestion: string | null
+          created_at: string
+          emotion_score: number | null
+          fear_indicator: boolean | null
+          fomo_indicator: boolean | null
+          greed_indicator: boolean | null
+          id: string
+          overtrading: boolean | null
+          psychology_tags: string[] | null
+          revenge_trade: boolean | null
+          risk_reward_ratio: number | null
+          trade_id: string | null
+          user_id: string
+        }
+        Insert: {
+          ai_analysis?: string | null
+          ai_suggestion?: string | null
+          created_at?: string
+          emotion_score?: number | null
+          fear_indicator?: boolean | null
+          fomo_indicator?: boolean | null
+          greed_indicator?: boolean | null
+          id?: string
+          overtrading?: boolean | null
+          psychology_tags?: string[] | null
+          revenge_trade?: boolean | null
+          risk_reward_ratio?: number | null
+          trade_id?: string | null
+          user_id: string
+        }
+        Update: {
+          ai_analysis?: string | null
+          ai_suggestion?: string | null
+          created_at?: string
+          emotion_score?: number | null
+          fear_indicator?: boolean | null
+          fomo_indicator?: boolean | null
+          greed_indicator?: boolean | null
+          id?: string
+          overtrading?: boolean | null
+          psychology_tags?: string[] | null
+          revenge_trade?: boolean | null
+          risk_reward_ratio?: number | null
+          trade_id?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "trade_analysis_trade_id_fkey"
+            columns: ["trade_id"]
+            isOneToOne: false
+            referencedRelation: "trades"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      trades: {
+        Row: {
+          avg_price: number
+          broker_connection_id: string | null
+          brokerage: number | null
+          created_at: string
+          entry_time: string
+          exit_price: number | null
+          exit_time: string | null
+          expiry: string | null
+          id: string
+          instrument_type: string
+          lot_size: number | null
+          notes: string | null
+          option_type: string | null
+          pnl: number | null
+          quantity: number
+          setup: string | null
+          side: string
+          source: string | null
+          status: string | null
+          stop_loss: number | null
+          strategy: string | null
+          strike: number | null
+          symbol: string
+          tags: string[] | null
+          target_price: number | null
+          taxes: number | null
+          underlying: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          avg_price: number
+          broker_connection_id?: string | null
+          brokerage?: number | null
+          created_at?: string
+          entry_time: string
+          exit_price?: number | null
+          exit_time?: string | null
+          expiry?: string | null
+          id?: string
+          instrument_type: string
+          lot_size?: number | null
+          notes?: string | null
+          option_type?: string | null
+          pnl?: number | null
+          quantity: number
+          setup?: string | null
+          side: string
+          source?: string | null
+          status?: string | null
+          stop_loss?: number | null
+          strategy?: string | null
+          strike?: number | null
+          symbol: string
+          tags?: string[] | null
+          target_price?: number | null
+          taxes?: number | null
+          underlying?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          avg_price?: number
+          broker_connection_id?: string | null
+          brokerage?: number | null
+          created_at?: string
+          entry_time?: string
+          exit_price?: number | null
+          exit_time?: string | null
+          expiry?: string | null
+          id?: string
+          instrument_type?: string
+          lot_size?: number | null
+          notes?: string | null
+          option_type?: string | null
+          pnl?: number | null
+          quantity?: number
+          setup?: string | null
+          side?: string
+          source?: string | null
+          status?: string | null
+          stop_loss?: number | null
+          strategy?: string | null
+          strike?: number | null
+          symbol?: string
+          tags?: string[] | null
+          target_price?: number | null
+          taxes?: number | null
+          underlying?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "trades_broker_connection_id_fkey"
+            columns: ["broker_connection_id"]
+            isOneToOne: false
+            referencedRelation: "broker_connections"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never
