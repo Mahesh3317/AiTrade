@@ -12,6 +12,7 @@ import Capital from "./pages/Capital";
 import Settings from "./pages/Settings";
 import Live from "./pages/Live";
 import Onboarding from "./pages/Onboarding";
+import BrokerCallback from "./pages/BrokerCallback";
 import ComingSoon from "./pages/ComingSoon";
 import NotFound from "./pages/NotFound";
 
@@ -25,6 +26,7 @@ const App = () => (
       <BrowserRouter>
         <Routes>
           <Route path="/onboarding" element={<Onboarding />} />
+          <Route path="/broker-callback" element={<BrokerCallback />} />
           <Route element={<MainLayout />}>
             <Route path="/" element={<Dashboard />} />
             <Route path="/trades" element={<Trades />} />
