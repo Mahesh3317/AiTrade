@@ -9,29 +9,56 @@ import { OIAnalysisCard } from '@/components/live/OIAnalysisCard';
 import { OptionChainTable } from '@/components/live/OptionChainTable';
 import { OIChart } from '@/components/live/OIChart';
 import { DiagnosticsPanel } from '@/components/live/DiagnosticsPanel';
+import { AIAnalysis } from '@/components/live/AIAnalysis';
+import { TradeAssist } from '@/components/live/TradeAssist';
 import { useNseData } from '@/hooks/useNseData';
+import { useHistoricalData } from '@/hooks/useHistoricalData';
+import { useAIAnalysis } from '@/hooks/useAIAnalysis';
+import { calculateOptionGreeks } from '@/utils/greeks';
+// Removed mock data imports - using only real NSE data
 import { Alert, AlertDescription } from '@/components/ui/alert';
 
 const SYMBOLS = ['NIFTY', 'BANKNIFTY', 'FINNIFTY', 'MIDCPNIFTY'];
 
 export default function Live() {
+  console.log('[Live] Component mounted/rendered');
+  
   const [selectedSymbol, setSelectedSymbol] = useState('NIFTY');
   const [selectedExpiry, setSelectedExpiry] = useState<string>('');
   const [isLive, setIsLive] = useState(true);
   const [lastUpdate, setLastUpdate] = useState(new Date());
   
   const { loading, error, data, diagnostics, fetchOptionChain } = useNseData();
+  const { fetchHistoricalData } = useHistoricalData();
+  const { analyses: aiAnalyses, loading: aiLoading, analyzeTimeframe } = useAIAnalysis();
+  
+  // Log on mount
+  useEffect(() => {
+    console.log('[Live] Component mounted - Initial load');
+  }, []);
 
   // Fetch data on mount and when symbol/expiry changes
   const loadData = useCallback(async () => {
     console.log('📊 Loading NSE data for', selectedSymbol, selectedExpiry || '(default expiry)');
-    const result = await fetchOptionChain(selectedSymbol, selectedExpiry || undefined);
-    if (result) {
-      setLastUpdate(new Date());
-      // Set first expiry as default if not set
-      if (!selectedExpiry && result.expiryDates?.length > 0) {
-        setSelectedExpiry(result.expiryDates[0]);
+    try {
+      const result = await fetchOptionChain(selectedSymbol, selectedExpiry || undefined);
+      if (result) {
+        console.log('📊 NSE data received:', {
+          success: result.success,
+          dataLength: result.data?.length || 0,
+          spotPrice: result.spotPrice,
+          expiryDates: result.expiryDates?.length || 0,
+        });
+        setLastUpdate(new Date());
+        // Set first expiry as default if not set
+        if (!selectedExpiry && result.expiryDates?.length > 0) {
+          setSelectedExpiry(result.expiryDates[0]);
+        }
+      } else {
+        console.warn('📊 No data returned from fetchOptionChain');
       }
+    } catch (err) {
+      console.error('📊 Error loading NSE data:', err);
     }
   }, [selectedSymbol, selectedExpiry, fetchOptionChain]);
 
@@ -47,66 +74,130 @@ export default function Live() {
     }
   }, [selectedExpiry]);
 
-  // Auto-refresh every 10 seconds when live
+  // Auto-refresh every 2 seconds when live (configurable 1-3 seconds for real-time)
   useEffect(() => {
     if (!isLive) return;
     
     const interval = setInterval(() => {
       console.log('⏰ Auto-refresh');
       loadData();
-    }, 10000);
+    }, 2000); // 2 seconds for real-time updates
     
     return () => clearInterval(interval);
   }, [isLive, loadData]);
 
-  // Transform NSE data to component format
-  const transformedOptionChain = useMemo(() => {
-    if (!data?.data || data.data.length === 0) return [];
-
-    console.log(`✅ Transforming ${data.data.length} strikes from NSE`);
-
-    return data.data
-      .map((item) => ({
-        strike: item.strikePrice,
-        callLTP: item.CE?.lastPrice || 0,
-        callOI: item.CE?.openInterest || 0,
-        callOIChange: item.CE?.changeinOpenInterest || 0,
-        callVolume: item.CE?.totalTradedVolume || 0,
-        callIV: item.CE?.impliedVolatility || 0,
-        callDelta: 0, // NSE doesn't provide Greeks
-        callGamma: 0,
-        callTheta: 0,
-        callVega: 0,
-        putLTP: item.PE?.lastPrice || 0,
-        putOI: item.PE?.openInterest || 0,
-        putOIChange: item.PE?.changeinOpenInterest || 0,
-        putVolume: item.PE?.totalTradedVolume || 0,
-        putIV: item.PE?.impliedVolatility || 0,
-        putDelta: 0,
-        putGamma: 0,
-        putTheta: 0,
-        putVega: 0,
-      }))
-      .sort((a, b) => a.strike - b.strike);
-  }, [data]);
-
-  // Spot price
+  // Spot price - MUST be defined before transformedOptionChain
   const spotPrice = useMemo(() => {
     return data?.spotPrice || data?.indexQuote?.last || 0;
   }, [data]);
 
-  // Market data
+  // Transform NSE data to component format with calculated Greeks
+  // NO MOCK DATA - Only real NSE data
+  const transformedOptionChain = useMemo(() => {
+    // Only use real NSE data - no mock fallback
+    if (!data?.data || data.data.length === 0) {
+      console.log('⚠️ No option chain data available from NSE');
+      return [];
+    }
+
+    console.log(`✅ Transforming ${data.data.length} strikes from NSE with Greeks calculation`);
+
+    const currentSpot = spotPrice || data.spotPrice || 0;
+    const expiryDate = data.selectedExpiry || data.expiryDates?.[0] || '';
+    
+    if (!currentSpot || currentSpot === 0) {
+      console.warn('⚠️ No spot price available for Greeks calculation');
+    }
+    if (!expiryDate) {
+      console.warn('⚠️ No expiry date available for Greeks calculation');
+    }
+
+    return data.data
+      .map((item) => {
+        // Calculate Greeks for Call option
+        let callGreeks = { delta: 0, gamma: 0, theta: 0, vega: 0, rho: 0 };
+        if (item.CE && item.CE.impliedVolatility > 0 && expiryDate && currentSpot > 0 && item.strikePrice > 0) {
+          try {
+            callGreeks = calculateOptionGreeks(
+              currentSpot,
+              item.strikePrice,
+              expiryDate,
+              item.CE.impliedVolatility,
+              'call',
+              0.065 // 6.5% risk-free rate
+            );
+            // Validate Greeks are not NaN or Infinity
+            if (!isFinite(callGreeks.delta)) callGreeks.delta = 0;
+            if (!isFinite(callGreeks.gamma)) callGreeks.gamma = 0;
+            if (!isFinite(callGreeks.theta)) callGreeks.theta = 0;
+            if (!isFinite(callGreeks.vega)) callGreeks.vega = 0;
+            if (!isFinite(callGreeks.rho)) callGreeks.rho = 0;
+          } catch (e) {
+            console.warn('Error calculating call Greeks for strike', item.strikePrice, e);
+          }
+        }
+
+        // Calculate Greeks for Put option
+        let putGreeks = { delta: 0, gamma: 0, theta: 0, vega: 0, rho: 0 };
+        if (item.PE && item.PE.impliedVolatility > 0 && expiryDate && currentSpot > 0 && item.strikePrice > 0) {
+          try {
+            putGreeks = calculateOptionGreeks(
+              currentSpot,
+              item.strikePrice,
+              expiryDate,
+              item.PE.impliedVolatility,
+              'put',
+              0.065 // 6.5% risk-free rate
+            );
+            // Validate Greeks are not NaN or Infinity
+            if (!isFinite(putGreeks.delta)) putGreeks.delta = 0;
+            if (!isFinite(putGreeks.gamma)) putGreeks.gamma = 0;
+            if (!isFinite(putGreeks.theta)) putGreeks.theta = 0;
+            if (!isFinite(putGreeks.vega)) putGreeks.vega = 0;
+            if (!isFinite(putGreeks.rho)) putGreeks.rho = 0;
+          } catch (e) {
+            console.warn('Error calculating put Greeks for strike', item.strikePrice, e);
+          }
+        }
+
+        return {
+          strike: item.strikePrice,
+          callLTP: item.CE?.lastPrice || 0,
+          callOI: item.CE?.openInterest || 0,
+          callOIChange: item.CE?.changeinOpenInterest || 0,
+          callVolume: item.CE?.totalTradedVolume || 0,
+          callIV: item.CE?.impliedVolatility || 0,
+          callDelta: callGreeks.delta,
+          callGamma: callGreeks.gamma,
+          callTheta: callGreeks.theta,
+          callVega: callGreeks.vega,
+          putLTP: item.PE?.lastPrice || 0,
+          putOI: item.PE?.openInterest || 0,
+          putOIChange: item.PE?.changeinOpenInterest || 0,
+          putVolume: item.PE?.totalTradedVolume || 0,
+          putIV: item.PE?.impliedVolatility || 0,
+          putDelta: putGreeks.delta,
+          putGamma: putGreeks.gamma,
+          putTheta: putGreeks.theta,
+          putVega: putGreeks.vega,
+        };
+      })
+      .sort((a, b) => a.strike - b.strike);
+  }, [data, spotPrice]);
+
+  // Market data - ONLY real NSE data
   const marketData = useMemo(() => {
-    if (!data) {
+    if (!data || !data.indexQuote) {
+      console.log('⚠️ No market data from NSE');
       return {
         symbol: selectedSymbol,
-        spotPrice,
+        spotPrice: spotPrice || 0,
         change: 0,
         changePercent: 0,
-        high: spotPrice,
-        low: spotPrice,
-        open: spotPrice,
-        prevClose: spotPrice,
+        high: spotPrice || 0,
+        low: spotPrice || 0,
+        open: spotPrice || 0,
+        prevClose: spotPrice || 0,
       };
     }
 
@@ -123,9 +214,10 @@ export default function Live() {
     };
   }, [data, spotPrice, selectedSymbol]);
 
-  // IV data from option chain
+  // IV data from option chain - ONLY real NSE data
   const ivData = useMemo(() => {
     if (!data?.data || data.data.length === 0) {
+      console.log('⚠️ No IV data from NSE');
       return { current: 0, rank: 0, percentile: 0, high52w: 0, low52w: 0, mean: 0 };
     }
 
@@ -152,9 +244,10 @@ export default function Live() {
     };
   }, [data]);
 
-  // OI analysis
+  // OI analysis - ONLY real NSE data
   const oiAnalysis = useMemo(() => {
     if (!data?.data || data.data.length === 0) {
+      console.log('⚠️ No OI data from NSE');
       return {
         maxPainStrike: spotPrice,
         pcr: 0,
@@ -202,8 +295,85 @@ export default function Live() {
     };
   }, [data, spotPrice]);
 
+  // Auto-run AI Analysis for multiple timeframes with different intervals
+  useEffect(() => {
+    if (!transformedOptionChain.length || !spotPrice || spotPrice === 0 || !isLive) {
+      return;
+    }
+
+    const runAIAnalysis = async (timeframe: '1m' | '5m' | '15m') => {
+      try {
+        // Fetch historical data for the timeframe
+        const historicalCandles = await fetchHistoricalData({
+          symbol: selectedSymbol,
+          timeframe,
+          limit: 100,
+          currentSpotPrice: spotPrice,
+        });
+
+        if (historicalCandles.length >= 20) {
+          await analyzeTimeframe(timeframe, historicalCandles, transformedOptionChain, spotPrice);
+        }
+      } catch (err) {
+        console.error(`Error in AI analysis for ${timeframe}:`, err);
+      }
+    };
+
+    // Initial analysis for all timeframes
+    runAIAnalysis('1m');
+    runAIAnalysis('5m');
+    runAIAnalysis('15m');
+
+    // Set up auto-refresh intervals
+    // 1m: every 1 minute
+    const interval1m = setInterval(() => {
+      if (isLive) runAIAnalysis('1m');
+    }, 60000);
+
+    // 5m: every 5 minutes
+    const interval5m = setInterval(() => {
+      if (isLive) runAIAnalysis('5m');
+    }, 300000);
+
+    // 15m: every 15 minutes
+    const interval15m = setInterval(() => {
+      if (isLive) runAIAnalysis('15m');
+    }, 900000);
+
+    return () => {
+      clearInterval(interval1m);
+      clearInterval(interval5m);
+      clearInterval(interval15m);
+    };
+  }, [transformedOptionChain, spotPrice, selectedSymbol, isLive, fetchHistoricalData, analyzeTimeframe]);
+
   const isConnected = !!data && !error;
-  const isUsingRealData = isConnected && data.data && data.data.length > 0;
+  const isUsingRealData = isConnected && data?.data && data.data.length > 0;
+
+  // Always render the page - never return null
+  console.log('[Live] Component rendering - Data:', {
+    hasData: !!data,
+    dataLength: data?.data?.length || 0,
+    spotPrice,
+    isConnected,
+    isUsingRealData,
+    error,
+    loading,
+    diagnostics: diagnostics.status,
+  });
+  
+  // Debug: Log raw data structure
+  if (data) {
+    console.log('[Live] Raw data structure:', {
+      success: data.success,
+      symbol: data.symbol,
+      spotPrice: data.spotPrice,
+      dataLength: data.data?.length,
+      expiryDates: data.expiryDates?.length,
+      selectedExpiry: data.selectedExpiry,
+      firstItem: data.data?.[0],
+    });
+  }
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -215,7 +385,40 @@ export default function Live() {
         <Alert variant="destructive" className="border-loss/50 bg-loss/10">
           <AlertCircle className="h-4 w-4" />
           <AlertDescription>
-            <span>NSE API: {error}</span>
+            <span className="font-medium">NSE API Error: {error}</span>
+            <br />
+            <span className="text-xs mt-1 block">
+              Check Diagnostics Panel above for details. Market may be closed or NSE API may be blocking requests.
+            </span>
+          </AlertDescription>
+        </Alert>
+      )}
+      
+      {/* Market Closed / No Data Alert */}
+      {!loading && !error && transformedOptionChain.length === 0 && (
+        <Alert className={data?.marketClosed ? "border-info/50 bg-info/10" : "border-warning/50 bg-warning/10"}>
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription>
+            <span className="font-medium">
+              {data?.marketClosed ? 'Market is Closed' : 'No Option Chain Data Available'}
+            </span>
+            <br />
+            <span className="text-xs mt-1 block">
+              {data?.message || (
+                <>
+                  NSE trading hours: 9:15 AM - 3:30 PM IST (Monday-Friday)
+                  <br />
+                  Option chain data is only available during market hours.
+                  <br />
+                  Spot price is still updated from previous close.
+                </>
+              )}
+            </span>
+            {!data?.marketClosed && (
+              <span className="text-xs mt-2 block">
+                Check Diagnostics Panel above for details. Click Refresh button to retry.
+              </span>
+            )}
           </AlertDescription>
         </Alert>
       )}
@@ -223,14 +426,25 @@ export default function Live() {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-foreground">F&O Live</h1>
+          <h1 className="text-2xl font-bold text-foreground">AI Market Analysis</h1>
           <p className="text-muted-foreground text-sm">
             Real-time Option Chain & Analytics
             {isUsingRealData && (
               <Badge variant="outline" className="ml-2 text-profit border-profit">NSE Live</Badge>
             )}
-            {!isUsingRealData && (
-              <Badge variant="outline" className="ml-2">No Live Data</Badge>
+            {!isUsingRealData && loading && (
+              <Badge variant="outline" className="ml-2 text-warning border-warning">Loading...</Badge>
+            )}
+            {!isUsingRealData && !loading && error && (
+              <Badge variant="outline" className="ml-2 text-loss border-loss">Error</Badge>
+            )}
+            {!isUsingRealData && !loading && !error && transformedOptionChain.length === 0 && data?.message && (
+              <Badge variant="outline" className="ml-2 text-warning border-warning">
+                {data.message.includes('Market is closed') ? 'Market Closed' : 'No Data'}
+              </Badge>
+            )}
+            {!isUsingRealData && !loading && !error && transformedOptionChain.length === 0 && !data?.message && (
+              <Badge variant="outline" className="ml-2 text-muted-foreground border-muted-foreground">Waiting for Data</Badge>
             )}
           </p>
         </div>
@@ -309,11 +523,30 @@ export default function Live() {
       {/* Option Chain & OI Chart */}
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
         <div className="xl:col-span-2">
-          <OptionChainTable data={transformedOptionChain} spotPrice={spotPrice} />
+          {loading ? (
+            <div className="stat-card">
+              <div className="flex items-center justify-center py-12">
+                <RefreshCw className="h-6 w-6 animate-spin text-muted-foreground mr-3" />
+                <span className="text-muted-foreground">Loading option chain data from NSE...</span>
+              </div>
+            </div>
+          ) : (
+            <OptionChainTable data={transformedOptionChain} spotPrice={spotPrice} />
+          )}
         </div>
         <div>
           <OIChart data={transformedOptionChain} spotPrice={spotPrice} />
         </div>
+      </div>
+
+      {/* AI Analysis & Trade Assist */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <AIAnalysis analysis={aiAnalyses} loading={aiLoading} spotPrice={spotPrice} />
+        <TradeAssist 
+          analysis={Object.values(aiAnalyses)} 
+          spotPrice={spotPrice}
+          atmStrike={transformedOptionChain.find(opt => Math.abs(opt.strike - spotPrice) <= 25)?.strike}
+        />
       </div>
 
       {/* Data Source Info */}

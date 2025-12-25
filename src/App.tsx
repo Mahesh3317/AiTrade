@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { MainLayout } from "./components/layout/MainLayout";
 import Dashboard from "./pages/Dashboard";
+import Home from "./pages/Home";
 import Trades from "./pages/Trades";
 import Analytics from "./pages/Analytics";
 import Psychology from "./pages/Psychology";
@@ -28,12 +29,13 @@ const App = () => (
           <Route path="/onboarding" element={<Onboarding />} />
           <Route path="/broker-callback" element={<BrokerCallback />} />
           <Route element={<MainLayout />}>
+            <Route path="/home" element={<Home />} />
             <Route path="/" element={<Dashboard />} />
             <Route path="/trades" element={<Trades />} />
             <Route path="/analytics" element={<Analytics />} />
             <Route path="/psychology" element={<Psychology />} />
             <Route path="/capital" element={<Capital />} />
-            <Route path="/live" element={<Live />} />
+            <Route path="/live" element={<Live />} /> {/* Keep for backward compatibility */}
             <Route path="/alerts" element={<ComingSoon title="Alerts" description="Price, IV, OI, and risk rule alerts with real-time notifications coming soon." />} />
             <Route path="/goals" element={<ComingSoon title="Goals & Habits" description="Set weekly goals, track habit streaks, and get coaching reminders." />} />
             <Route path="/settings" element={<Settings />} />

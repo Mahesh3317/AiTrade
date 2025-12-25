@@ -7,7 +7,7 @@ const corsHeaders = {
 
 const baseHeaders = {
   'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-  'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+  'Accept': 'application/json',
   'Accept-Language': 'en-US,en;q=0.9',
   'Accept-Encoding': 'gzip, deflate, br',
   'Connection': 'keep-alive',
@@ -45,7 +45,7 @@ async function fetchOptionChain(symbol: string, cookies: string): Promise<any> {
     headers: {
       ...baseHeaders,
       'Cookie': cookies,
-      'Referer': 'https://www.nseindia.com/option-chain',
+      'Referer': 'https://www.nseindia.com',
     },
   });
   
@@ -54,10 +54,21 @@ async function fetchOptionChain(symbol: string, cookies: string): Promise<any> {
   if (!response.ok) {
     const text = await response.text();
     console.error('[NSE] Error response:', text.substring(0, 500));
+    if (response.status === 403) {
+      throw new Error('NSE API blocked request (403). Try again in a few seconds.');
+    }
     throw new Error(`NSE API returned ${response.status}`);
   }
   
-  return response.json();
+  const jsonData = await response.json();
+  console.log('[NSE] Response received, records.data length:', jsonData.records?.data?.length || 0);
+  console.log('[NSE] Response top-level keys:', Object.keys(jsonData));
+  if (jsonData.records) {
+    console.log('[NSE] Records keys:', Object.keys(jsonData.records));
+    console.log('[NSE] Records.data type:', Array.isArray(jsonData.records.data) ? 'array' : typeof jsonData.records.data);
+    console.log('[NSE] Records.expiryDates:', jsonData.records.expiryDates?.length || 0, 'items');
+  }
+  return jsonData;
 }
 
 // Fetch index quote for spot price
@@ -109,6 +120,11 @@ serve(async (req) => {
     // Step 2: Fetch option chain
     const optionChainData = await fetchOptionChain(symbol, cookies);
     
+    // Debug: Log full response structure
+    console.log('[NSE] Full response keys:', Object.keys(optionChainData));
+    console.log('[NSE] Response has records:', !!optionChainData.records);
+    console.log('[NSE] Response has filtered:', !!optionChainData.filtered);
+    
     // Step 3: Fetch spot price
     const indexQuote = await fetchIndexQuote(symbol, cookies);
     
@@ -116,6 +132,7 @@ serve(async (req) => {
     const records = optionChainData.records || {};
     const filtered = optionChainData.filtered || {};
     
+    // Debug: Check all possible data locations
     console.log('[NSE] Raw data structure:', {
       hasRecords: !!records,
       hasData: !!records.data,
@@ -124,22 +141,109 @@ serve(async (req) => {
       expiryDatesLength: records.expiryDates?.length || 0,
       firstExpiry: records.expiryDates?.[0] || 'none',
       underlyingValue: records.underlyingValue,
+      // Check if data is in a different location
+      hasOptionChainData: !!optionChainData.data,
+      optionChainDataLength: optionChainData.data?.length || 0,
+      recordsKeys: records ? Object.keys(records) : [],
     });
+    
+    // Check if data is directly in optionChainData (some NSE responses have this structure)
+    if (!records.data && optionChainData.data) {
+      console.log('[NSE] Data found in optionChainData.data instead of records.data');
+      records.data = optionChainData.data;
+    }
+    
+    // Check if expiryDates is in a different location
+    if (!records.expiryDates && optionChainData.expiryDates) {
+      console.log('[NSE] Expiry dates found in optionChainData.expiryDates');
+      records.expiryDates = optionChainData.expiryDates;
+    }
     
     // Get expiry dates
     const expiryDates = records.expiryDates || [];
+    console.log('[NSE] Expiry dates from NSE:', expiryDates.length, expiryDates);
     
     // Filter by requested expiry if provided
     let chainData = records.data || [];
     console.log('[NSE] Chain data before filtering:', chainData.length, 'items');
     
+    // Debug: Log first few items to understand structure
+    if (chainData.length > 0) {
+      console.log('[NSE] First item sample:', JSON.stringify(chainData[0]).substring(0, 200));
+      console.log('[NSE] First item expiryDate:', chainData[0]?.expiryDate);
+    } else {
+      // Check if market is closed (NSE hours: 9:15 AM - 3:30 PM IST)
+      const now = new Date();
+      const istTime = new Date(now.toLocaleString("en-US", {timeZone: "Asia/Kolkata"}));
+      const hours = istTime.getHours();
+      const minutes = istTime.getMinutes();
+      const isMarketHours = (hours > 9 || (hours === 9 && minutes >= 15)) && (hours < 15 || (hours === 15 && minutes <= 30));
+      const isWeekend = istTime.getDay() === 0 || istTime.getDay() === 6;
+      
+      console.log('[NSE] Market status check:', {
+        istTime: istTime.toISOString(),
+        hours,
+        minutes,
+        isMarketHours,
+        isWeekend,
+        marketClosed: !isMarketHours || isWeekend,
+      });
+      
+      if (!isMarketHours || isWeekend) {
+        console.log('[NSE] Market is closed - returning empty data with message');
+        return new Response(
+          JSON.stringify({ 
+            success: true,
+            symbol,
+            spotPrice: records.underlyingValue || indexQuote?.last || 0,
+            timestamp: records.timestamp || new Date().toISOString(),
+            expiryDates: expiryDates,
+            selectedExpiry: null,
+            data: [],
+            totals: {
+              CE: { totalOI: 0, totalVolume: 0 },
+              PE: { totalOI: 0, totalVolume: 0 },
+            },
+            indexQuote: indexQuote ? {
+              open: indexQuote.open,
+              high: indexQuote.high,
+              low: indexQuote.low,
+              last: indexQuote.last,
+              previousClose: indexQuote.previousClose,
+              change: indexQuote.variation,
+              percentChange: indexQuote.percentChange,
+            } : null,
+            message: `Market is closed. NSE trading hours: 9:15 AM - 3:30 PM IST (Monday-Friday). Current IST time: ${istTime.toLocaleTimeString('en-IN')}`,
+            marketClosed: true,
+          }),
+          { 
+            status: 200,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          }
+        );
+      }
+    }
+    
+    // Filter by expiry if provided
     if (expiry) {
+      const beforeFilter = chainData.length;
       chainData = chainData.filter((item: any) => item.expiryDate === expiry);
-      console.log('[NSE] After expiry filter (', expiry, '):', chainData.length, 'items');
+      console.log('[NSE] After expiry filter (', expiry, '):', beforeFilter, '->', chainData.length, 'items');
     } else if (expiryDates.length > 0) {
       // Default to first expiry
-      chainData = chainData.filter((item: any) => item.expiryDate === expiryDates[0]);
-      console.log('[NSE] After default expiry filter (', expiryDates[0], '):', chainData.length, 'items');
+      const firstExpiry = expiryDates[0];
+      const beforeFilter = chainData.length;
+      chainData = chainData.filter((item: any) => item.expiryDate === firstExpiry);
+      console.log('[NSE] After default expiry filter (', firstExpiry, '):', beforeFilter, '->', chainData.length, 'items');
+    } else {
+      // No expiry dates, use all data
+      console.log('[NSE] No expiry dates, using all', chainData.length, 'items');
+    }
+    
+    // If after filtering we have no data, still return structure but with empty array
+    if (chainData.length === 0) {
+      console.warn('[NSE] No data after expiry filtering, but returning structure');
+      // Continue to return empty array - don't error out
     }
     
     // Transform to consistent format

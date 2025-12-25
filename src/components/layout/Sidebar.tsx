@@ -6,19 +6,21 @@ import {
   BarChart3,
   Brain,
   Settings,
-  TrendingUp,
+  Home,
   Bell,
   Target,
   Wallet,
+  TrendingUp,
 } from 'lucide-react';
 
 const navigation = [
+  { name: 'Home', href: '/home', icon: Home },
   { name: 'Dashboard', href: '/', icon: LayoutDashboard },
   { name: 'Trades', href: '/trades', icon: BookOpen },
   { name: 'Analytics', href: '/analytics', icon: BarChart3 },
   { name: 'Psychology', href: '/psychology', icon: Brain },
   { name: 'Capital', href: '/capital', icon: Wallet },
-  { name: 'F&O Live', href: '/live', icon: TrendingUp },
+  // F&O Live hidden - moved to Home
   { name: 'Alerts', href: '/alerts', icon: Bell },
   { name: 'Goals', href: '/goals', icon: Target },
   { name: 'Settings', href: '/settings', icon: Settings },
@@ -34,8 +36,8 @@ export function Sidebar() {
             <TrendingUp className="h-5 w-5 text-primary-foreground" />
           </div>
           <div>
-            <h1 className="text-lg font-semibold text-foreground">TradeSmart</h1>
-            <p className="text-xs text-muted-foreground">India F&O Tracker</p>
+            <h1 className="text-lg font-semibold text-foreground">AiTrade</h1>
+            <p className="text-xs text-muted-foreground">AI-Powered F&O Analysis</p>
           </div>
         </div>
 

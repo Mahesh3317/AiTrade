@@ -24,6 +24,7 @@ export interface NseOptionChainData {
   } | null;
   error?: string;
   message?: string;
+  marketClosed?: boolean;
 }
 
 export interface NseOptionRow {
@@ -144,6 +145,14 @@ export function useNseData() {
       }
 
       console.log('[NSE Hook] Success! Got', responseData.data?.length || 0, 'strikes');
+      console.log('[NSE Hook] Response details:', {
+        success: responseData.success,
+        symbol: responseData.symbol,
+        spotPrice: responseData.spotPrice,
+        dataLength: responseData.data?.length,
+        expiryDates: responseData.expiryDates?.length,
+        firstStrike: responseData.data?.[0]?.strikePrice,
+      });
       
       setDiagnostics(prev => ({
         ...prev,
