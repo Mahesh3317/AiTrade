@@ -74,15 +74,14 @@ export default function Live() {
     }
   }, [selectedExpiry]);
 
-  // Auto-refresh every 2 seconds when live (configurable 1-3 seconds for real-time)
+  // Auto-refresh (NSE blocks very frequent polling; keep it fast but safe)
   useEffect(() => {
     if (!isLive) return;
-    
+
     const interval = setInterval(() => {
-      console.log('⏰ Auto-refresh');
       loadData();
-    }, 2000); // 2 seconds for real-time updates
-    
+    }, 10000); // 10s to avoid NSE anti-bot throttling
+
     return () => clearInterval(interval);
   }, [isLive, loadData]);
 

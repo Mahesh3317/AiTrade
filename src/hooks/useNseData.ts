@@ -144,31 +144,49 @@ export function useNseData() {
         throw new Error(responseData.message || responseData.error || 'NSE API failed');
       }
 
-      console.log('[NSE Hook] Success! Got', responseData.data?.length || 0, 'strikes');
-      console.log('[NSE Hook] Response details:', {
-        success: responseData.success,
-        symbol: responseData.symbol,
-        spotPrice: responseData.spotPrice,
-        dataLength: responseData.data?.length,
-        expiryDates: responseData.expiryDates?.length,
-        firstStrike: responseData.data?.[0]?.strikePrice,
-      });
-      
-      setDiagnostics(prev => ({
-        ...prev,
-        status: 'success',
-        latencyMs,
-        payloadSize,
-        httpStatus: 200,
-        errorMessage: null,
-        rawResponse: responseData,
-        strikesCount: responseData.data?.length || 0,
-        expiryDatesCount: responseData.expiryDates?.length || 0,
-        spotPrice: responseData.spotPrice || null,
-      }));
-      
-      setData(responseData);
-      return responseData;
+       console.log('[NSE Hook] Success! Got', responseData.data?.length || 0, 'strikes');
+       console.log('[NSE Hook] Response details:', {
+         success: responseData.success,
+         symbol: responseData.symbol,
+         spotPrice: responseData.spotPrice,
+         dataLength: responseData.data?.length,
+         expiryDates: responseData.expiryDates?.length,
+         firstStrike: responseData.data?.[0]?.strikePrice,
+       });
+
+       setDiagnostics(prev => ({
+         ...prev,
+         status: 'success',
+         latencyMs,
+         payloadSize,
+         httpStatus: 200,
+         errorMessage: null,
+         rawResponse: responseData,
+         strikesCount: responseData.data?.length || 0,
+         expiryDatesCount: responseData.expiryDates?.length || 0,
+         spotPrice: responseData.spotPrice || null,
+       }));
+
+       // If NSE intermittently returns empty option-chain due to anti-bot throttling,
+       // keep the last good chain so the UI doesn't go blank.
+       setData(prev => {
+         const hasPrevChain = !!prev?.data && prev.data.length > 0;
+         const hasNewChain = !!responseData.data && responseData.data.length > 0;
+
+         if (!hasNewChain && hasPrevChain) {
+           return {
+             ...prev,
+             spotPrice: responseData.spotPrice ?? prev.spotPrice,
+             timestamp: responseData.timestamp ?? prev.timestamp,
+             indexQuote: responseData.indexQuote ?? prev.indexQuote,
+             message: responseData.message,
+             marketClosed: responseData.marketClosed,
+           };
+         }
+
+         return responseData;
+       });
+       return responseData;
 
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Unknown error fetching NSE data';
