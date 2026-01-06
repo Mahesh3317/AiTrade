@@ -103,7 +103,7 @@ export function useAIAnalysis() {
           bias: structure.trend === 'uptrend' ? 'bullish' : structure.trend === 'downtrend' ? 'bearish' : 'neutral',
           momentum: latestRSI.rsi > 70 ? 'strong' : latestRSI.rsi < 30 ? 'strong' : 'moderate',
           volatility: optionAnalysis.ivRegime === 'expanding' ? 'high' : optionAnalysis.ivRegime === 'contracting' ? 'low' : 'moderate',
-          trendType: structure.trendType,
+          structure: structure.structure,
         },
         candlestick: pattern ? pattern.description : null,
         currentPrice: spotPrice,
